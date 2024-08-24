@@ -18,7 +18,9 @@ struct chunk_t
         vk::Buffer buffer;
         vk::Image image;
     };
-    size_t memoryKey;
+    vk::MemoryPropertyFlags memoryPropertyFlags;
+    size_t buddyIdx;
+    size_t chunkIdx;
     void *data;
 };
 
@@ -75,11 +77,11 @@ class Buddy
     meta_data allocate(size_t size)
     {
         auto tmp = ceil(log2(size));
-        size = static_cast<size_t>(tmp * tmp);
+        auto sz = static_cast<size_t>(tmp * tmp);
         if (size < _min_block_size)
             size = _min_block_size;
 
-        for (size_t i = static_cast<size_t>(log2(size)); i < _free_blocks.size(); ++i)
+        for (size_t i = static_cast<size_t>(log2(sz)); i < _free_blocks.size(); ++i)
         {
             if (!_free_blocks[i].empty())
             {
@@ -110,28 +112,35 @@ class Buddy
     {
         dev.free(_memory);
     }
+
+    bool canAllocateSize(size_t size){
+        auto tmp = ceil(log2(size));
+        for(auto i = static_cast<size_t>(log2(size)); i < _free_blocks.size(); ++i){
+            if(!_free_blocks[i].empty())
+                return true;            
+        }
+        return false;
+    }
 };
 
 
 
 class allocator
 {
-    std::unordered_map<vk::Buffer, chunk_t> _chunks_maps;
+    std::vector<chunk_t> _chunks;
     std::vector<Buddy> _buddies;
+    
     size_t _alignment;
     size_t _max_total_size;
-    vk::MemoryType _memType;
 
   public:
     allocator() = delete;
 
-    allocator(vk::Device dev, size_t TotalSize, size_t alignment,
-              vk::MemoryType type)
-        : _alignment(alignment), _max_total_size(TotalSize), _memType(type)
+    allocator(vk::Device dev, size_t TotalSize, size_t alignment, uint32_t heapIndex)
+        : _alignment(alignment), _max_total_size(TotalSize)
     {
         auto range = TotalSize / 2147483648llu; 
-        for (auto j = 0; j < range; ++j)
-            _buddies.emplace_back(dev, type.heapIndex, 2147483648llu, alignment);
+        _buddies.emplace_back(dev, heapIndex, 2147483648llu, alignment);
     };
 
     void destroy(vk::Device dev)
@@ -140,19 +149,24 @@ class allocator
             buddy.destroy(dev);
     }
 
-    chunk_t& allocate_buffer(vk::Buffer buffer, vk::MemoryRequirements memReq, size_t size)
+    chunk_t& allocate_buffer(vk::Device& dev, chunk_t& chunk, size_t size)
     {
-        chunk_t chunk{{}, buffer, 0, nullptr};
-        size_t idx = 0;
-        for (auto buddy : _buddies)
-        {
-            if (memReq.memoryTypeBits & buddy.getTypeId())
+        size_t idx;
+        for(idx = 0; idx < _buddies.size(); ++idx){
+            if(_buddies.at(idx).canAllocateSize(size) )
             {
-                chunk.meta = buddy.allocate(size);
-                chunk.memoryKey = idx;
+                chunk.meta = _buddies.at(idx).allocate(size);
+                chunk.buddyIdx = idx;    
+                dev.bindBufferMemory(chunk.buffer, _buddies.at(idx).getMemory(), chunk.meta.offset);            
+                break;
             }
-            ++idx;
         }
-        return _chunks_maps.at(buffer) = chunk;
+        chunk.chunkIdx = _chunks.size();
+        _chunks.push_back(chunk);
+        return chunk;
+    }
+
+    chunk_t& get_chunk(size_t idx){
+        return _chunks.at(idx);
     }
 };
