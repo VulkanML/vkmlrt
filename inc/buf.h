@@ -2,6 +2,7 @@
 #include <vulkan/vulkan_hash.hpp>
 #include <unordered_map>
 
+#define max_size  1 << 15
 
 
 struct meta_data
@@ -139,8 +140,8 @@ class allocator
     allocator(vk::Device dev, size_t TotalSize, size_t alignment, uint32_t heapIndex)
         : _alignment(alignment), _max_total_size(TotalSize)
     {
-        auto range = TotalSize / 2147483648llu; 
-        _buddies.emplace_back(dev, heapIndex, 2147483648llu, alignment);
+        auto range = TotalSize / max_size; 
+        _buddies.emplace_back(dev, heapIndex, max_size, alignment);
     };
 
     void destroy(vk::Device dev)
@@ -169,4 +170,9 @@ class allocator
     chunk_t& get_chunk(size_t idx){
         return _chunks.at(idx);
     }
+
+    vk::DeviceMemory get_memory(size_t idx){
+        return _buddies.at(idx).getMemory();
+    }
+
 };

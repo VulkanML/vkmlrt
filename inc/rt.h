@@ -7,103 +7,57 @@
 #include <vector>
 #include <vulkan/vulkan.hpp>
 #include "../inc/buf.h"
+#include "../inc/pgrm.h"
 
 
-class compPgrm
-{
-    vk::ShaderModule _shaderModule;
-    vk::PipelineLayout _pipeLayout;
-
-    std::vector<vk::DescriptorBufferInfo> _chunks;
-    std::vector<vk::DescriptorSetLayoutBinding> _descSetBindings;
-    vk::DescriptorSetLayout _descSetLayout;
-    vk::DescriptorPool _descPool;
-    std::vector<vk::DescriptorSet> _descSets;
-
-  public:
-    compPgrm()
-    {
-    }
-
-    void destroy(vk::Device &dev)
-    {
-        dev.destroyShaderModule(_shaderModule);
-        dev.destroyDescriptorSetLayout(_descSetLayout);
-    }
-    // add buffers # 1
-    void addBuffer(chunk_t *arg)
-    {
-        _descSetBindings.emplace_back(_descSetBindings.size(), vk::DescriptorType::eStorageBuffer, 1,
-                                      vk::ShaderStageFlagBits::eCompute);
-        vk::DescriptorBufferInfo descBuffer(arg->buffer, arg->meta.offset, arg->meta.size);
-        _chunks.push_back(descBuffer);
-    }
-
-    // define descriptorSetLayout # 1.1
-    void defineDescriptorSetLayout(vk::Device &dev)
-    {
-        vk::DescriptorSetLayoutCreateInfo DescriptorSetLayoutCreateInfo(vk::DescriptorSetLayoutCreateFlags(),
-                                                                        _descSetBindings);
-        _descSetLayout = dev.createDescriptorSetLayout(DescriptorSetLayoutCreateInfo);
-        vk::DescriptorPoolSize DescriptorPoolSize(vk::DescriptorType::eStorageBuffer, static_cast<uint32_t>(_descSetBindings.size()));
-        vk::DescriptorPoolCreateInfo DescriptorPoolCreateInfo(vk::DescriptorPoolCreateFlags(), 1, DescriptorPoolSize);
-        _descPool = dev.createDescriptorPool(DescriptorPoolCreateInfo);
-        vk::DescriptorSetAllocateInfo DescriptorSetAllocInfo(_descPool, 1, &_descSetLayout);
-        _descSets = dev.allocateDescriptorSets(DescriptorSetAllocInfo);
-        std::vector<vk::WriteDescriptorSet> writeDescriptorSets;
-        for (auto i = 0; i < _chunks.size(); ++i)
-            writeDescriptorSets.emplace_back(_descSets.front(), i, 0, 1, vk::DescriptorType::eStorageBuffer, nullptr, &_chunks[i]);
-        dev.updateDescriptorSets(writeDescriptorSets, {});
-    }
-
-    // define shader # 1
-    void defineShader(vk::Device &dev, uint8_t *shader, size_t size)
-    {
-        vk::ShaderModuleCreateInfo ShaderModuleCreateInfo(vk::ShaderModuleCreateFlags(), size,
-                                                          reinterpret_cast<const uint32_t *>(shader));
-        _shaderModule = dev.createShaderModule(ShaderModuleCreateInfo);
-    }
-
-    // define pipelineLayout # 2
-    void definePipelineLayout(vk::Device &dev, const vk::PipelineCache &cache)
-    {
-        if (_descSetLayout == nullptr)
-        {
-            defineDescriptorSetLayout(dev);
-        }
-        vk::PipelineLayoutCreateInfo PipelineLayoutCreateInfo(vk::PipelineLayoutCreateFlags(), _descSetLayout);
-        _pipeLayout = dev.createPipelineLayout(PipelineLayoutCreateInfo);
-
-        vk::ComputePipelineCreateInfo ComputePipelineCreateInfo(
-            vk::PipelineCreateFlags(),
-            vk::PipelineShaderStageCreateInfo(vk::PipelineShaderStageCreateFlags(), vk::ShaderStageFlagBits::eCompute,
-                                              _shaderModule, "main"),
-            _pipeLayout);
-
-        vk::Pipeline ComputePipeline = dev.createComputePipeline(cache, ComputePipelineCreateInfo).value;
-    }
-};
-
-class cmd
+class q
 {
     vk::Queue _cmdQueue;
     vk::CommandPool _cmdPool;
-    std::vector<vk::CommandBuffer> _cmdBuffer;
+    vk::CommandBuffer _primaryCmdBuffer;
+    vk::CommandBuffer _secondaryCmdBuffer;
+    vk::Fence _fence;
 
+    
   public:
-    cmd(vk::Device &dev, uint32_t qFamIdx, uint32_t queueIndex)
+    q(vk::Device &dev, uint32_t qFamIdx, uint32_t queueIndex)
     {
+        _fence = dev.createFence(vk::FenceCreateInfo());
         _cmdQueue = dev.getQueue(qFamIdx, queueIndex);
         _cmdPool = dev.createCommandPool(vk::CommandPoolCreateInfo(vk::CommandPoolCreateFlags(), qFamIdx));
-        _cmdBuffer =
-            dev.allocateCommandBuffers(vk::CommandBufferAllocateInfo(_cmdPool, vk::CommandBufferLevel::ePrimary, 1));
+        _primaryCmdBuffer =
+            dev.allocateCommandBuffers(vk::CommandBufferAllocateInfo(_cmdPool, vk::CommandBufferLevel::ePrimary, 1)).front();
+        _secondaryCmdBuffer = dev.allocateCommandBuffers(vk::CommandBufferAllocateInfo(_cmdPool, vk::CommandBufferLevel::eSecondary, 1)).front();  
+    }
+
+    void execute(vk::Device& dev, const compPgrm &pgrm)
+    {
+        vk::CommandBufferBeginInfo CmdBufferBeginInfo(vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
+        _primaryCmdBuffer.begin(CmdBufferBeginInfo);
+        _primaryCmdBuffer.bindPipeline(vk::PipelineBindPoint::eCompute, pgrm._pipe);
+        _primaryCmdBuffer.bindDescriptorSets(vk::PipelineBindPoint::eCompute, pgrm._pipeLayout, 0, pgrm._descSets, {});
+        _primaryCmdBuffer.dispatch(1, 1, 1);
+        _primaryCmdBuffer.end();
+        _cmdQueue.submit(vk::SubmitInfo(0, nullptr, nullptr, 1, &_primaryCmdBuffer), _fence);
+        _cmdQueue.waitIdle();
     }
 
     void destroy(vk::Device &dev)
     {
-        dev.freeCommandBuffers(_cmdPool, _cmdBuffer);
+        dev.freeCommandBuffers(_cmdPool, _primaryCmdBuffer);
+        dev.freeCommandBuffers(_cmdPool, _secondaryCmdBuffer);
         dev.destroyCommandPool(_cmdPool);
     }
+
+    void sync()
+    {
+        _cmdQueue.waitIdle();
+    }
+
+    vk::Fence getFence()
+    {
+        return _fence;
+    }    
 };
 
 
@@ -112,7 +66,7 @@ class dev
 {
     vk::Device _dev;
     // std::vector<vk::Queue> _computeQ, _graphicsQ, _transferQ;
-    std::vector<cmd> _compute_cmds, _graphics_cmds, _transfer_cmds;
+    std::vector<q> _compute_cmds, _graphics_cmds, _transfer_cmds;
     vk::PhysicalDeviceMemoryProperties _memProps;
     vk::PhysicalDeviceProperties _devProps;
     vk::PhysicalDeviceProperties2 _devProps2;
@@ -123,12 +77,19 @@ class dev
     vk::PipelineCache _pipelineCache;
 
     std::vector<compPgrm> _compPgrms;
-    std::vector<vk::DeviceQueueCreateInfo> _defineExecQueues(const std::vector<vk::QueueFamilyProperties> &queueFamilyProperties, std::vector<uint32_t>& computeQIdx, std::vector<uint32_t>& graphicsQIdx, std::vector<uint32_t>& transferQIdx);
+
+    std::vector<vk::DeviceQueueCreateInfo> _defineExecQueues(const std::vector<vk::QueueFamilyProperties> &queueFamilyProperties)
+    {
+        std::vector<vk::DeviceQueueCreateInfo> deviceQueueCreateInfos;
+        for(auto i = 0; i < queueFamilyProperties.size(); ++i){
+            std::vector<float> QueuePriority(queueFamilyProperties[i].queueCount, 0.0f);
+            deviceQueueCreateInfos.emplace_back(vk::DeviceQueueCreateFlags(), i, queueFamilyProperties[i].queueCount, &QueuePriority.back());
+        }   
+        return deviceQueueCreateInfos;
+    }
 
     void _buildAllocators();
-    void _buildCmds(const std::vector<vk::QueueFamilyProperties> &queueFamilyProperties,
-                    const std::vector<uint32_t> &computeQIdx, const std::vector<uint32_t> &graphicsQIdx,
-                    const std::vector<uint32_t> &transferQIdx);
+    void _buildCmds(const std::vector<vk::QueueFamilyProperties> &queueFamilyProperties);
 
   public:
     dev(const vk::PhysicalDevice &pd)
@@ -145,10 +106,10 @@ class dev
         _devProps = _devProps2.properties;        
         std::vector<uint32_t> computeQIdx, graphicsQIdx, transferQIdx;
         printf("Max Compute Shared Memory Size: %d KB", _devProps.limits.maxComputeSharedMemorySize / 1024);
-        std::vector<vk::DeviceQueueCreateInfo> deviceQueueCreateInfos = _defineExecQueues(pd.getQueueFamilyProperties(), computeQIdx, graphicsQIdx, transferQIdx);
+        std::vector<vk::DeviceQueueCreateInfo> deviceQueueCreateInfos = _defineExecQueues(pd.getQueueFamilyProperties());
         _dev = pd.createDevice(vk::DeviceCreateInfo(vk::DeviceCreateFlags(), deviceQueueCreateInfos));  
         std::vector<vk::QueueFamilyProperties> queueFamilyProperties = pd.getQueueFamilyProperties();
-        _buildCmds(pd.getQueueFamilyProperties(), computeQIdx, graphicsQIdx, transferQIdx);
+        _buildCmds(pd.getQueueFamilyProperties());
         _pipelineCache = _dev.createPipelineCache(vk::PipelineCacheCreateInfo());
         _buildAllocators();
     }
@@ -161,8 +122,10 @@ class dev
         vk::MemoryRequirements memReq = _dev.getBufferMemoryRequirements(buffer);
         
         chunk_t chunk{{}, buffer, {}, 0, 0, nullptr};
-        for(auto& allocator : _allocators){
-            if((static_cast<vk::MemoryPropertyFlags>(memReq.memoryTypeBits) & allocator.first) ){
+        for(auto& allocator : _allocators)
+        {
+            if((static_cast<vk::MemoryPropertyFlags>(memReq.memoryTypeBits) & allocator.first) )
+            {
                 chunk = allocator.second.allocate_buffer(_dev, chunk, size);
                 chunk.memoryPropertyFlags = allocator.first;
                 _bufferChunks.emplace(buffer, chunk);
@@ -173,7 +136,7 @@ class dev
         
         // if ((usage & vk::BufferUsageFlagBits::eTransferSrc) == vk::BufferUsageFlagBits::eTransferDst ||
         //     (usage & vk::BufferUsageFlagBits::eTransferDst) == vk::BufferUsageFlagBits::eTransferDst)
-        //     chunk.data = dev.mapMemory(_buddies[chunk.memoryKey].getMemory(), chunk.meta.offset, size);
+        //      chunk.data = _dev.mapMemory(_allocators.at(chunk.memoryPropertyFlags).get_memory(chunk.buddyIdx), chunk.meta.offset, size);
 
     	
         return buffer;
@@ -222,7 +185,7 @@ class dev
             _dev.destroy();
     }
 
-    void define_shader_program(uint8_t* shader, size_t shadersize, const std::vector<vk::Buffer> &buffers)
+    compPgrm define_shader_program(uint8_t* shader, size_t shadersize, const std::vector<vk::Buffer> &buffers)
     {
         auto pgrm = compPgrm();
         pgrm.defineShader(_dev, shader, shadersize);
@@ -232,7 +195,13 @@ class dev
             auto chunk = _bufferChunks.at(buf);   
             pgrm.addBuffer(&chunk);
         }
-        _compPgrms.emplace_back(pgrm);
+        pgrm.definePipelineLayout(_dev, _pipelineCache);
+        return pgrm;
+    }
+
+    void execute(const compPgrm& pgrm)
+    {
+        _compute_cmds.at(0).execute(_dev, pgrm);
     }
 
     ~dev() {};
@@ -280,10 +249,16 @@ class rt
         return _devices.at(device_id).createDeviceBuffer(size, usage);
     }
 
-    void buildFunction(size_t device_id, unsigned char shader[], size_t shaderSize, const std::vector<vk::Buffer> &buffers)
+    compPgrm buildFunction(size_t device_id, unsigned char shader[], size_t shaderSize, const std::vector<vk::Buffer> &buffers)
     {
-        _devices.at(device_id).define_shader_program(shader, shaderSize, buffers);
+        return _devices.at(device_id).define_shader_program(shader, shaderSize, buffers);
     }
+
+    void execute(size_t device_id, compPgrm &pgrm)
+    {
+        _devices.at(device_id).execute(pgrm);
+    }
+
 };
 
 inline void dev::_buildAllocators()
@@ -381,66 +356,37 @@ inline void dev::_buildAllocators()
                 type.first.propertyFlags,
                 allocator(_dev, heap.size, _devProps2.properties.limits.minStorageBufferOffsetAlignment, type.first.heapIndex));
         }
-
     }
 }
 
-inline std::vector<vk::DeviceQueueCreateInfo> dev::_defineExecQueues(const std::vector<vk::QueueFamilyProperties> &queueFamilyProperties, std::vector<uint32_t>& computeQIdx, std::vector<uint32_t>& graphicsQIdx, std::vector<uint32_t>& transferQIdx)
-{
-        std::vector<vk::DeviceQueueCreateInfo> deviceQueueCreateInfos;
-        uint32_t i = 0;        
-        for (auto &qfq : queueFamilyProperties)
-        {
-            auto cf = qfq.queueFlags & vk::QueueFlagBits::eCompute;
-            auto gf = qfq.queueFlags & vk::QueueFlagBits::eGraphics;
-            auto tf = qfq.queueFlags & vk::QueueFlagBits::eTransfer;
-            
-            if (cf && !gf && !tf)
-            {
-                computeQIdx.emplace_back(i);
-                std::vector<float> computeQueuePriority(qfq.queueCount, 0.0f);
-                deviceQueueCreateInfos.emplace_back(vk::DeviceQueueCreateInfo(
-                    vk::DeviceQueueCreateFlags(), i, qfq.queueCount, &computeQueuePriority.back()));
-            }
-            else if (gf && !tf)
-            {
-                graphicsQIdx.emplace_back(i);
-                std::vector<float> graphicsQueuePriority(qfq.queueCount, 0.0f);
-                deviceQueueCreateInfos.emplace_back(vk::DeviceQueueCreateInfo(
-                    vk::DeviceQueueCreateFlags(), i, qfq.queueCount, &graphicsQueuePriority.back()));
-            }
-            // else if (tf && !cf && !gf)
-            {
-                transferQIdx.emplace_back(i);
-                std::vector<float> transferQueuePriority(qfq.queueCount, 0.0f);
-                deviceQueueCreateInfos.emplace_back(vk::DeviceQueueCreateInfo(
-                    vk::DeviceQueueCreateFlags(), i, qfq.queueCount, &transferQueuePriority.back()));
-            }
-            ++i;
-        }
+inline void dev::_buildCmds(const std::vector<vk::QueueFamilyProperties> &queueFamilyProperties)
+{   
+    size_t j = 0;
+    for(auto i = 0; i < queueFamilyProperties.size(); ++i)
+    {
+        auto cf = queueFamilyProperties[i].queueFlags & vk::QueueFlagBits::eCompute;
+        auto gf = queueFamilyProperties[i].queueFlags & vk::QueueFlagBits::eGraphics;
+        auto tf = queueFamilyProperties[i].queueFlags & vk::QueueFlagBits::eTransfer;
         
-        return deviceQueueCreateInfos;
-}
-
-inline void dev::_buildCmds(const std::vector<vk::QueueFamilyProperties> &queueFamilyProperties,
-                            const std::vector<uint32_t> &computeQIdx, const std::vector<uint32_t> &graphicsQIdx,
-                            const std::vector<uint32_t> &transferQIdx)
-{
-    for (auto &idx : computeQIdx)
-    {
-        for (uint32_t j = 0; j < queueFamilyProperties[idx].queueCount; ++j)
-            _compute_cmds.emplace_back(_dev, idx, j);
-    }
-
-    for (auto &idx : graphicsQIdx)
-    {
-        for (uint32_t j = 0; j < queueFamilyProperties[idx].queueCount; ++j)
-            _graphics_cmds.emplace_back(_dev, idx, j);
-    }
-
-    for (auto &idx : transferQIdx)
-    {
-        for (uint32_t j = 0; j < queueFamilyProperties[idx].queueCount; ++j)
-            _transfer_cmds.emplace_back(_dev, idx, j);
+        for(auto k = 0; k < queueFamilyProperties[i].queueCount; ++k)
+        {
+            q cq(_dev, i, j+k);
+            if(cf)
+            {
+                _compute_cmds.emplace_back(cq);
+            }
+            if(gf)
+            {
+                _graphics_cmds.emplace_back(cq);
+            }
+            if(tf)
+            {
+                _transfer_cmds.emplace_back(cq);
+            }
+        }
+        j += queueFamilyProperties[i].queueCount;
     }
 }
+
+
+
