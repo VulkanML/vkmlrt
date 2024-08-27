@@ -8,7 +8,7 @@
 // unknow compiler... just ignore the warnings for yourselves ;)
 #endif
 
-#include "../inc/rt.h"
+#include "../inc/rt.hpp"
 #include <vulkan/vulkan.hpp>
 
 std::shared_ptr<rt> rt::_instance = nullptr;
