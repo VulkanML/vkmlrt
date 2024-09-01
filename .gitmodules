@@ -1,9 +1,6 @@
-[submodule "ext/Vulkan-Headers"]
-	path = ext/Vulkan-Headers
-	url = https://github.com/KhronosGroup/Vulkan-Headers.git
 [submodule "ext/VulkanMemoryAllocator"]
-	path = ext/VulkanMemoryAllocator
-	url = https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git
+    path = ext/VulkanMemoryAllocator
+    url = https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git
 [submodule "ext/volk"]
-	path = ext/volk
-	url = https://github.com/zeux/volk.git
+    path = ext/volk
+    url = https://github.com/zeux/volk.git
