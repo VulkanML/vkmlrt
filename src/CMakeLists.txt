@@ -1,4 +1,5 @@
-find_package(Vulkan REQUIRED)
+
+
 
 set(HEADER_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/../inc)
 include_directories(${HEADER_ROOT})

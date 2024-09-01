@@ -1,5 +1,3 @@
-find_package(Vulkan REQUIRED)
-
 cmake_minimum_required(VERSION 3.12)
 project(vkrt LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
@@ -10,8 +8,8 @@ set(CMAKE_CXX_STANDARD 17)
 #   set(CMAKE_CXX_COMPILER cl)
 # endif()
 
+add_subdirectory(ext/Vulkan-Headers)
+add_subdirectory(ext/VulkanMemoryAllocator)
+add_subdirectory(ext/volk)
 add_subdirectory(src)
 
-add_executable(trial trial.cpp)
-target_include_directories(trial PRIVATE "inc")
-target_link_libraries(trial runtime)
