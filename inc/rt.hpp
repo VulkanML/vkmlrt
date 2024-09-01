@@ -1,20 +1,25 @@
 #pragma once
+#define VMA_VULKAN_VERSION 1003000
+#define VK_NO_PROTOTYPES
+#define VOLK_IMPLEMENTATION
+#include "volk.h"
 
-#include <map>
 #include <memory>
-#include <stdexcept>
 #include <stdio.h>
 #include <vector>
-#include <vulkan/vulkan.hpp>
-#include "dev.hpp"
 
+#include <vulkan/vulkan.h>
+#include "dev.hpp"
+#include "volk.h"
 
 class rt
 {
     rt()
     {
-        vk::ApplicationInfo appInfo("Hello Triangle", VK_MAKE_VERSION(1, 0, 0), "No Engine", VK_MAKE_VERSION(1, 0, 0),
-                                    VK_API_VERSION_1_1);
+       
+
+        vkCreateInstance(const VkInstanceCreateInfo *pCreateInfo, const VkAllocationCallbacks *pAllocator, VkInstance *pInstance)
+
         vk::InstanceCreateInfo createInfo({}, &appInfo);
         _inst = vk::createInstance(createInfo);
         for (auto &pd : _inst.enumeratePhysicalDevices())
@@ -26,7 +31,7 @@ class rt
     rt(const rt &) = delete;
     rt &operator=(const rt &) = delete;
     static std::shared_ptr<rt> _instance;
-    vk::Instance _inst;
+    VkInstance _inst;
     vk::DebugUtilsMessengerEXT _debugUtilsMessenger;
     std::vector<dev> _devices;
 
@@ -63,5 +68,44 @@ class rt
     
 };
 
+namespace vkrt {
 
 
+struct vkrt_instance {
+    VkInstance instance;
+};
+
+void init(vkrt_instance&instance) 
+{
+    auto res = volkInitialize();
+	if (res != VK_SUCCESS) {
+		printf("Failed to initialize volk\n");
+	}
+
+    VkApplicationInfo appInfo = {};
+    appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
+    appInfo.pApplicationName = "Hello Triangle";
+    appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
+    appInfo.pEngineName = "No Engine";
+    appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
+    appInfo.apiVersion = VK_API_VERSION_1_3;
+    auto res = volkInitialize();
+
+    VkInstanceCreateInfo createInfo = {};
+    createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+    createInfo.pApplicationInfo = &appInfo;
+
+    
+    auto ins_res = vkCreateInstance(&createInfo, nullptr, &instance.instance);
+	if (ins_res != VK_SUCCESS) {
+		printf("Failed to create instance\n");
+	}
+	volkLoadInstance(instance.instance);
+}
+
+void destroy(vkrt_instance& instance) 
+{
+    vkDestroyInstance(instance.instance, nullptr);
+}
+
+} // namespace vkrt
