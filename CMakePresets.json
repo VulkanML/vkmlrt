@@ -3,7 +3,7 @@
     "configurePresets": [
         {
             "name": "win",
-            "displayName": "Visual Studio Community 2022 Release",
+            "displayName": "visual studio 17 2022",
             "description": "Using compilers for Visual Studio 17 2022 (x64 architecture)",
             "generator": "Visual Studio 17 2022",
             "toolset": "host=x64",

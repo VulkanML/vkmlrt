@@ -46,6 +46,8 @@ public:
 		_descPool = dev.createDescriptorPool(DescriptorPoolCreateInfo);
 		vk::DescriptorSetAllocateInfo DescriptorSetAllocInfo(_descPool, 1, &_descSetLayout);
 		_descSets = dev.allocateDescriptorSets(DescriptorSetAllocInfo);
+
+        
 		std::vector<vk::WriteDescriptorSet> writeDescriptorSets;
 		for (auto i = 0; i < _chunks.size(); ++i)
 			writeDescriptorSets.emplace_back(_descSets.front(), i, 0, 1, vk::DescriptorType::eStorageBuffer, nullptr, &_chunks[i]);

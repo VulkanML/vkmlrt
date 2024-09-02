@@ -1,6 +1,6 @@
-
-
-
 add_executable(trial trial.cpp)
-target_include_directories(trial PRIVATE "inc")
-target_link_libraries(trial runtime)
+
+find_library(VKMLRT_LIBRARY NAMES vkmlrt)
+message(STATUS "VKMLRT_LIBRARY = ${VKMLRT_LIBRARY}")
+
+target_link_libraries(trial PRIVATE  vkmlrt.dll)
