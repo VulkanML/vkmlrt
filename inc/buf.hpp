@@ -167,8 +167,6 @@ public:
 	{
 		size_t idx;
 		
-
-
 		for (idx = 0; idx < _buddies.size(); ++idx) {
 			if (_buddies.at(idx).canAllocateSize(size))
 			{
@@ -190,3 +188,4 @@ public:
 	}
 
 };
+

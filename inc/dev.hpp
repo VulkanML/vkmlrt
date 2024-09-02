@@ -213,3 +213,4 @@ inline void dev::_buildCmds(const std::vector<vk::QueueFamilyProperties>& queueF
 		j += queueFamilyProperties[i].queueCount;
 	}
 }
+
